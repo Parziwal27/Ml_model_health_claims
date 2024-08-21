@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 import joblib
+from flask_cors import CORS
 import numpy as np
 
 app = Flask(__name__)
+CORS(app)
 
 # Load your trained model and scaler
 model = joblib.load('lgbm_model.joblib')
