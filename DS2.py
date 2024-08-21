@@ -1,14 +1,23 @@
 from flask import Flask, request, jsonify
 import joblib
-from flask_cors import CORS
 import numpy as np
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
 
 # Load your trained model and scaler
-model = joblib.load('lgbm_model.joblib')
-scaler = joblib.load('scaler.joblib')
+try:
+    logger.info("Loading model and scaler...")
+    model = joblib.load('lgbm_model.joblib')
+    scaler = joblib.load('scaler.joblib')
+    logger.info("Model and scaler loaded successfully")
+except Exception as e:
+    logger.error(f"Error loading model or scaler: {str(e)}")
+    raise
 
 # Define the expected features (all except 'InscClaimAmtReimbursed')
 EXPECTED_FEATURES = [
@@ -31,12 +40,23 @@ EXPECTED_FEATURES = [
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        logger.info("Received prediction request")
+        
         # Get the data from the POST request
-        data = request.json['features']
+        try:
+            data = request.json['features']
+            logger.info(f"Received data: {data}")
+        except KeyError:
+            logger.error("No 'features' key in JSON data")
+            return jsonify({'error': 'No features provided in the request'}), 400
+        except Exception as e:
+            logger.error(f"Error parsing request data: {str(e)}")
+            return jsonify({'error': 'Invalid JSON data'}), 400
         
         # Ensure all required features are present
-        if not all(feature in data for feature in EXPECTED_FEATURES):
-            missing_features = [f for f in EXPECTED_FEATURES if f not in data]
+        missing_features = [f for f in EXPECTED_FEATURES if f not in data]
+        if missing_features:
+            logger.error(f"Missing features: {missing_features}")
             return jsonify({'error': f'Missing required features: {", ".join(missing_features)}'}), 400
         
         # Create feature array, converting each feature to float
@@ -45,21 +65,37 @@ def predict():
             try:
                 features.append(float(data[feature]))
             except ValueError:
+                logger.error(f"Invalid value for feature {feature}: {data[feature]}")
                 return jsonify({'error': f'Invalid value for {feature}. Expected float.'}), 400
+        
+        logger.info("Features extracted successfully")
         
         # Convert features to numpy array and reshape
         features_array = np.array(features).reshape(1, -1)
         
         # Scale features
-        scaled_features = scaler.transform(features_array)
+        try:
+            scaled_features = scaler.transform(features_array)
+            logger.info("Features scaled successfully")
+        except Exception as e:
+            logger.error(f"Error scaling features: {str(e)}")
+            return jsonify({'error': 'Error scaling features'}), 500
         
         # Make prediction
-        prediction = model.predict(scaled_features)
+        try:
+            prediction = model.predict(scaled_features)
+            logger.info(f"Prediction made: {prediction}")
+        except Exception as e:
+            logger.error(f"Error making prediction: {str(e)}")
+            return jsonify({'error': 'Error making prediction'}), 500
         
-        return jsonify({'prediction': float(prediction[0])})
+        response = {'prediction': float(prediction[0])}
+        logger.info(f"Sending response: {response}")
+        return jsonify(response)
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error: {str(e)}")
+        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    app.run(debug=True)  # Set to False in production
